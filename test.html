@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #343541;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background-color: #444654;
+            color: white;
+            text-align: center;
+            padding: 10px;
+        }
+
+        #selectedText {
+            visibility: hidden;
+        }
+
+        .chat-container {
+            width: 100%;
+            margin: 20px auto;
+            border-radius: 5px;
+            height: 100%;
+            padding-bottom: 100px
+        }
+
+        .chat {
+            padding: 20px;
+        }
+
+        .user-message,
+        .bot-message {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+
+        .user-message {
+            background-color: #343541;
+        }
+
+        .bot-message {
+            color: white;
+            margin-bottom: 70px;
+        }
+
+        .message-input {
+            width: 80%;
+            padding: 10px;
+            border: none;
+            border-top: 1px solid #0078D4;
+            margin: 10px 10px;
+            border-radius: 5px;
+            max-height: 50px;
+            resize: none;
+            overflow: hidden;
+        }
+
+        .send-button {
+            background-color: #6B6C7B;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .input {
+            text-align: center;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #444654;
+        }
+
+        .chat-container {
+            width: 100%;
+            margin: 20px auto;
+            border-radius: 5px;
+            height: 100%;
+            padding-bottom: 100px;
+        }
+
+        .chat {
+            padding: 20px;
+        }
+
+        .message-input {
+            width: 80%;
+            padding: 10px;
+            border: none;
+            border-top: 1px solid #0078D4;
+            margin: 10px 10px;
+            border-radius: 5px;
+            max-height: 50px;
+            resize: none;
+            overflow: hidden;
+        }
+
+        .send-button {
+            background-color: #6B6C7B;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .invisible {
+            visibility: hidden;
+        }
+
+        .retry-button {
+            background-color: white;
+            color: #343541;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+    <script>
+        window.onload = function () {
+            // Retrieve the selected text from the parent window
+            var selectedText = '${selectedText}';
+            // Add click event listener to the send button
+            document.getElementById('sendButton').addEventListener('click', function () {
+                // Log the selected text in the console
+                console.log(JSON.stringify(selectedText));
+
+                const text = textInput.value;
+                if (text) {
+                    // Call handleInput and pass a callback function
+                    handleInput('Input Text: ' + text, function (result) {
+                        console.log(result);
+                    });
+                    textInput.value = "";
+                }
+            });
+
+            document.getElementById("textInput").addEventListener("keyup", (event) => {
+                if (event.key === "Enter") {
+                    // Log the selected text in the console
+                    console.log(selectedText);
+
+                    const text = textInput.value;
+                    if (text) {
+                        // Call handleInput and pass a callback function
+                        handleInput('Input Text: ' + text, function (result) {
+                            console.log(result);
+                        });
+                        textInput.value = "";
+                    }
+                }
+            });
+        };
+    </script>
+</head>
+
+<body>
+    <header>
+        <h1>InspectGPT</h1>
+    </header>
+    <div class="chat-container">
+        <div class="chat">
+            <div class="bot-message">
+                ${searchedResponse}
+            </div>
+            <button id="retry-button" class="retry-button" onclick="retry('${rawSelectedText}')">Retry</button>
+            <hr>
+        </div>
+        <div class="chat">
+            <!-- Chat messages will go here -->
+        </div>
+        <div class="input">
+            <textarea id="textInput" class="message-input" type="text" placeholder="Ask Followup Questions"></textarea>
+            <br>
+            <button id="sendButton" class="send-button">Send</button>
+        </div>
+    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+
+        function handleInput(text, callback) {
+            vscode.postMessage({
+                command: 'handleInput',
+                text: text
+            });
+
+            // Set up a listener to handle the result
+            window.addEventListener('message', function (event) {
+                if (event.data.command === 'handleInputResult') {
+                    callback(event.data.result);
+                }
+            });
+        }
+
+        function handleFollowup(selectedText, input) {
+            vscode.postMessage({
+                command: 'followup',
+                selectedText: selectedText,
+                input: input
+            });
+        }
+
+        function retry(selectedText) {
+            vscode.postMessage({
+                command: 'retry',
+                selectedText: selectedText
+            });
+        }
+        function appendMessage(sender, message) {
+            const chat = document.querySelector(".chat");
+            const messageElement = document.createElement("div");
+            messageElement.className = sender === "user" ? "user-message" : "bot-message";
+            const icon = document.createElement("span");
+            icon.className = sender === "user" ? "user-icon" : "bot-icon";
+            icon.innerHTML = sender === "user" ? "👤  " : "🤖  "; // Add icons for the user and bot
+            messageElement.appendChild(icon);
+            messageElement.innerHTML += message;
+            chat.appendChild(messageElement);
+        }
+
+        // Example function for sending a message to Bard
+        function sendToBard(text, selectedText) {
+            appendMessage("bot", "Seen: " + text + " SelectedText: " + selectedText);
+            console.log(handleFollowup(selectedText, text))
+        }
+
+        // Add an event listener to the "Read More" link.
+        const readMoreLinks = document.querySelectorAll('.read-more');
+        readMoreLinks.forEach(link => {
+            link.addEventListener('click', event => {
+                // Prevent the default link behavior.
+                event.preventDefault();
+
+                // Get the parent element of the "Read More" link.
+                const parentElement = link.closest('.truncated-text');
+
+                // Remove the "Read More" link from the parent element.
+                link.remove();
+
+                // Display the remaining lines of text.
+                parentElement.classList.remove('truncated');
+            });
+        });
+
+    </script>
+</body>
+</html>

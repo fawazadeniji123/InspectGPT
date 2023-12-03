@@ -12,6 +12,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:extension.openWebview",
     "onCommand:inspectgpt.openWebview"
   ],
   "main": "./extension.js",
@@ -36,6 +37,10 @@
       {
         "command": "extension.inspectGPT",
         "title": "InspectGPT"
+      },
+      {
+        "command": "extension.openWebview",
+        "title": "Open Webview"
       }
     ],
     "menus": {

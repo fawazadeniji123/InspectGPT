@@ -7,8 +7,7 @@ const envFilePath = path.join(__dirname, '.env');
 const result = dotenv.config({ path: envFilePath });
 const limit = 10000; // Set your payload size limit here
 let config = '';
-let apiKey = process.env.API_KEY;
-var messagesOutside = [];
+let apiKey = '';
 let panel;
 let highlightedCode;
 
@@ -35,13 +34,12 @@ function activate(context) {
         }
 
         const selection = editor.selection;
-        console.log("Selection: " + selection);
 
         if (selection.isEmpty) {
             vscode.window.showInformationMessage('No code segment is highlighted');
         } else {
             const highlightedCode = editor.document.getText(selection);
-            sendHighlightedTextToBard(stringToBinary(highlightedCode), null);
+            sendHighlightedTextToBard(highlightedCode, null);
         }
     }));
 
@@ -66,7 +64,7 @@ function activate(context) {
         if (!selectedText) {
             vscode.window.showInformationMessage('No code segment is highlighted.');
         } else {
-            sendHighlightedTextToBard(stringToBinary(selectedText), null);
+            sendHighlightedTextToBard(selectedText, null);
         }
     });
 
@@ -76,6 +74,7 @@ function activate(context) {
 
 
     config = vscode.workspace.getConfiguration('InspectGPT');
+    apiKey = config.get('apiKey');
     context.subscriptions.push(
         vscode.commands.registerCommand('extension.inspectGPTAPIKey', () => {
             vscode.commands.executeCommand('workbench.action.openSettings', 'InspectGPT.apiKey');
@@ -97,7 +96,7 @@ function activate(context) {
 
 
     config = vscode.workspace.getConfiguration('InspectGPT');
-    apiKey = apiKey;
+    apiKey = config.get('apiKey');
 
     if (!apiKey) {
         vscode.window.showErrorMessage('InspectGPT API key is not set. Click "InspectGPT API KEY" to configure it.');
@@ -164,8 +163,8 @@ function activate(context) {
                                     }
                                 );
                                 if (userChoice === 'InspectGPT') {
-                                 // Panel title
-                                    panel = sendHighlightedTextToBard("InspectGPT", panel);
+                                    // Pass the global panel variable
+                                    panel = sendHighlightedTextToBard(currentSelection, panel);
                                 } else if (typeof userChoice === 'object' && userChoice.title === "Don't like the pop-up?") {
                                     await vscode.commands.executeCommand(
                                         'workbench.action.openSettings',
@@ -196,12 +195,12 @@ function activate(context) {
             if (!selection.isEmpty) {
                 if (editor.document.getText(selection).length <= limit) {
                     const selectedText = editor.document.getText(selection);
-                    panel = sendHighlightedTextToBard(stringToBinary(selectedText), panel); // Pass the panel variable
+                    panel = sendHighlightedTextToBard(selectedText, panel); // Pass the panel variable
                     // If the content is within the limit, return it as is
                 } else {
                     // If content exceeds the limit, return the content until the limit with "..."
                     const selectedText = editor.document.getText(selection).slice(0, limit) + "... '\n The code continues...'";
-                    panel = sendHighlightedTextToBard(stringToBinary(selectedText), panel); // Pass the panel variable
+                    panel = sendHighlightedTextToBard(selectedText, panel); // Pass the panel variable
                 }
             }
         }
@@ -260,7 +259,6 @@ function getActiveFileContent() {
 
 
 function sendHighlightedTextToBard(highlightedText, existingPanel) {
-    messagesOutside = [];
     if (existingPanel) {
         existingPanel.dispose(); // Dispose the existing panel
     }
@@ -301,137 +299,7 @@ function sendHighlightedTextToBard(highlightedText, existingPanel) {
 
     // Show "Waiting for Bard" while waiting for the response
     getResult = false;
-    panel.webview.html = getWebviewContent(highlightedText, 'Thinking ...');
-
-
-    panel.onDidDispose(() => {
-        panel = undefined;
-    });
-
-    // Handle messages from the webview
-
-    panel.webview.onDidReceiveMessage(
-        (message) => {
-            handleMessage(message);
-        },
-        undefined,
-    );
-
-    // Handle messages from the webview
-    // panel.webview.onDidReceiveMessage(message => {
-    //     console.log(message.text);
-    //     // vscode.window.showInformationMessage(`Received: ${message.text}`);
-    // });
-
-    // Send the highlighted text to Bard via an HTTP request
-    const language = getActiveFileLanguage();
-    const fileContent = getActiveFileContent();
-    const MODEL_NAME = "models/chat-bison-001";
-    const API_KEY = apiKey;
-    const messages = [];
-
-    const content = "Deligently check out this extract below and explain what this code is all about in specific context to the other codes in the project. Make sure you refer to other parts of the code file. If there are any error, point them out." + "\n" + binaryToString(highlightedText) + "\n" + "If necessary, send the corrected version of the code. If your response includes code, enclose it in a '<pre>' tag."
-    // const content = "Rewrite the corrected version of this code: " + "\n" + highlightedText + "\n";
-
-    messages.push({
-        "content": content
-    });
-    const client = new DiscussServiceClient({
-        authClient: new GoogleAuth().fromAPIKey(API_KEY),
-    });
-
-    const context = "Reply like a seasoned senior developer and code coach giving detailed explanation to the extracted code line. The file currently being worked on is written in \n '" + language + "' programming language. This is the full content of the file: \n '" + fileContent + "'. \n Make sure to refer to it in your explanation";
-    const examples = [
-        {
-            "input": {
-                "content": "Simply Check this text and say something:axios.post(apiUrl, requestData, { headers }).then(response => {// console.log('Response Status Code:', response.status);console.log('Response Data:', response.data.candidates[0].output.toString());}).catch(error => { console.error('Error:', error);});If it is meaningless, let me know"
-            },
-            "output": {
-                "content": "The provided text appears to be JavaScript code snippet that utilizes the Axios library to perform an HTTP POST request. It sends the request to an API endpoint specified by apiUrl with the request data stored in requestData and custom headers defined in the headers object.Upon successful completion of the request, the then() block is executed, which logs the response status code and the first candidate's output string to the console. If an error occurs during the request, the catch() block is triggered, logging the error details to the console.The code snippet seems meaningful in the context of making HTTP POST requests and handling responses using the Axios library. It demonstrates the basic structure of sending data to an API endpoint and processing the received response"
-            }
-        }
-    ];
-
-    client.generateMessage({
-        model: MODEL_NAME,
-        temperature: 1,
-        candidateCount: 8,
-        top_k: 40,
-        top_p: 0.95,
-        prompt: {
-            context: context,
-            examples: examples,
-            messages: messages,
-        },
-    }).then(result => {
-        if (result && result[0] && result[0].candidates && result[0].candidates.length > 0) {
-            result[0].candidates.forEach(obj => {
-                panel.webview.html = getWebviewContent(highlightedText, obj.content);
-                messages.push({ "content": obj.content });
-                getResult = true;
-            });
-        } else {
-            console.log("Didn't catch that. Please Re-Inspect a more concise code segment.");
-            getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, "Didn't catch that. Please Re-Inspect a more concise code segment.");
-        }
-    }).catch(error => {
-        if (error.code === 'ECONNABORTED') {
-            getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'No Internet Connection');
-        }if (error.code == 14) {
-            getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'Please check your internet connection.');
-        } else {
-            console.error('An error occured. Please Re-inspect.: Error code ' + error.code , error);
-            getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'An error occured. Please Re-inspect.');
-        }
-    });
-
-    return panel; // Return the new panel
-}
-
-function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
-    messagesOutside = [];
-    getResult = false;
-    if (!apiKey) {
-        if (!apiKey) {
-            vscode.window.showErrorMessage(`Open AI API Key is not set`, 'Set API Key').then(
-                async (selection) => {
-                    if (selection === 'Set API Key') {
-                        await vscode.commands.executeCommand(
-                            'workbench.action.openSettings',
-                            'InspectGPT.apikey'
-                        );
-                    }
-                }
-            );
-            return;
-        }
-        return existingPanel;
-    }
-
-    const { DiscussServiceClient } = require("@google-ai/generativelanguage");
-    const { GoogleAuth } = require("google-auth-library");
-
-    if (existingPanel) {
-        existingPanel.dispose(); // Dispose the existing panel
-    }
-
-    // Create a new panel
-    var panel = vscode.window.createWebviewPanel(
-        'highlightedTextPanel',
-        highlightedText,          // Truncate to 50 characters,
-        vscode.ViewColumn.Two,
-        {
-            enableScripts: true,
-        }
-    );
-
-    // Show "Waiting for Bard" while waiting for the response
-    getResult = false;
-    panel.webview.html = getWebviewContent(highlightedText, 'Thinking ...');
+    panel.webview.html = getWebviewContent(highlightedText, 'Waiting for Bard...');
 
 
     panel.onDidDispose(() => {
@@ -469,7 +337,7 @@ function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
         authClient: new GoogleAuth().fromAPIKey(API_KEY),
     });
 
-    const context = "Reply like a seasoned senior developer and code coach giving detailed explanation to the extracted code line. The file currently being worked on is written in \n '" + language + "' programming language. This is the full content of the file: \n '" + fileContent + "'. \n Make sure to refer to it in your explanation";
+    const context = "Reply like a seasoned senior developer and code coach giving detailed explanation to the extracted code line. The file currently being worked on is written in \n '" + language + "' programming language. This is the content of the file: \n '" + fileContent + "' \n";
     const examples = [
         {
             "input": {
@@ -500,18 +368,143 @@ function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
                 getResult = true;
             });
         } else {
-            console.log("Didn't catch that. Please Re-Inspect a more concise code segment.");
+            console.log("Oops, please provide some more info");
             getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, "Didn't catch that. Please Re-Inspect a more concise code segment.");
+            panel.webview.html = getWebviewContent(highlightedText, "Oops, please provide some more info");
         }
     }).catch(error => {
         if (error.code === 'ECONNABORTED') {
             getResult = true;
             panel.webview.html = getWebviewContent(highlightedText, 'No Internet Connection');
         } else {
-            console.error('An error occured. Please re-inspect.:', error);
+            console.error('Error sending text to Bard:', error);
             getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'An error occured. Please re-inspect.');
+            panel.webview.html = getWebviewContent(highlightedText, 'Error sending text to Bard');
+        }
+    });
+
+    return panel; // Return the new panel
+}
+
+function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
+    getResult = false;
+    if (!apiKey) {
+        if (!apiKey) {
+            vscode.window.showErrorMessage(`Open AI API Key is not set`, 'Set API Key').then(
+                async (selection) => {
+                    if (selection === 'Set API Key') {
+                        await vscode.commands.executeCommand(
+                            'workbench.action.openSettings',
+                            'InspectGPT.apikey'
+                        );
+                    }
+                }
+            );
+            return;
+        }
+        return existingPanel;
+    }
+
+    const { DiscussServiceClient } = require("@google-ai/generativelanguage");
+    const { GoogleAuth } = require("google-auth-library");
+
+    if (existingPanel) {
+        existingPanel.dispose(); // Dispose the existing panel
+    }
+
+    // Create a new panel
+    var panel = vscode.window.createWebviewPanel(
+        'highlightedTextPanel',
+        highlightedText,          // Truncate to 50 characters,
+        vscode.ViewColumn.Two,
+        {
+            enableScripts: true,
+        }
+    );
+
+    // Show "Waiting for Bard" while waiting for the response
+    getResult = false;
+    panel.webview.html = getWebviewContent(highlightedText, 'Waiting for Bard...');
+
+
+    panel.onDidDispose(() => {
+        panel = undefined;
+    });
+
+    // Handle messages from the webview
+    panel.webview.onDidReceiveMessage(
+        (message) => {
+            handleMessage(message);
+        },
+        undefined,
+    );
+
+    // Handle messages from the webview
+    // panel.webview.onDidReceiveMessage(message => {
+    //     console.log(message.text);
+    //     // vscode.window.showInformationMessage(`Received: ${message.text}`);
+    // });
+
+    // Send the highlighted text to Bard via an HTTP request
+    const language = getActiveFileLanguage();
+    const fileContent = getActiveFileContent();
+    const MODEL_NAME = "models/chat-bison-001";
+    const API_KEY = apiKey;
+    const messages = [];
+
+    const content = "Deligently check out this extract below and explain what this code is all about in specific context to the other codes in the project. If there are any error, point them out." + "\n" + highlightedText + "\n" + "If necessary, send the corrected version of the code. If your response includes code, enclose it in a '<pre>' tag."
+    // const content = "Rewrite the corrected version of this code: " + "\n" + highlightedText + "\n";
+
+    messages.push({
+        "content": content
+    });
+    const client = new DiscussServiceClient({
+        authClient: new GoogleAuth().fromAPIKey(API_KEY),
+    });
+
+    const context = "Reply like a seasoned senior developer and code coach giving detailed explanation to the extracted code line. The file currently being worked on is written in \n '" + language + "' programming language. This is the content of the file: \n '" + fileContent + "' \n";
+    const examples = [
+        {
+            "input": {
+                "content": "Simply Check this text and say something:axios.post(apiUrl, requestData, { headers }).then(response => {// console.log('Response Status Code:', response.status);console.log('Response Data:', response.data.candidates[0].output.toString());}).catch(error => { console.error('Error:', error);});If it is meaningless, let me know"
+            },
+            "output": {
+                "content": "The provided text appears to be JavaScript code snippet that utilizes the Axios library to perform an HTTP POST request. It sends the request to an API endpoint specified by apiUrl with the request data stored in requestData and custom headers defined in the headers object.Upon successful completion of the request, the then() block is executed, which logs the response status code and the first candidate's output string to the console. If an error occurs during the request, the catch() block is triggered, logging the error details to the console.The code snippet seems meaningful in the context of making HTTP POST requests and handling responses using the Axios library. It demonstrates the basic structure of sending data to an API endpoint and processing the received response"
+            }
+        }
+    ];
+
+    client.generateMessage({
+        model: MODEL_NAME,
+        temperature: 1,
+        candidateCount: 8,
+        top_k: 40,
+        top_p: 0.95,
+        prompt: {
+            context: context,
+            examples: examples,
+            messages: messages,
+        },
+    }).then(result => {
+        if (result && result[0] && result[0].candidates && result[0].candidates.length > 0) {
+            result[0].candidates.forEach(obj => {
+                panel.webview.html = getWebviewContent(highlightedText, obj.content);
+                messages.push({ "content": obj.content });
+                getResult = true;
+            });
+        } else {
+            console.log("Oops, please provide some more info");
+            getResult = true;
+            panel.webview.html = getWebviewContent(highlightedText, "Oops, please provide some more info");
+        }
+    }).catch(error => {
+        if (error.code === 'ECONNABORTED') {
+            getResult = true;
+            panel.webview.html = getWebviewContent(highlightedText, 'No Internet Connection');
+        } else {
+            console.error('Error sending text to Bard:', error);
+            getResult = true;
+            panel.webview.html = getWebviewContent(highlightedText, 'Error sending text to Bard');
         }
     });
 
@@ -531,7 +524,9 @@ function stringToBinary(inputString) {
 }
 
 var messagess = [1]
+var counters = 2;
 function handleFollowUpFunc(logable) {
+    messagess.push(counters);
     console.log("Goin well");
     return (messagess);
 }
@@ -541,13 +536,6 @@ function sayHello() {
 }
 
 function getWebviewContent(selectedText, bardResponse) {
-    messagesOutside = [];
-    messagesOutside.push({
-        "content": selectedText,
-    });
-    messagesOutside.push({
-        "content": bardResponse,
-    });
     var rawSelectedText = stringToBinary(selectedText);
     const formattedResponse = bardResponse
         .split('\n')
@@ -696,6 +684,7 @@ window.onload = function() {
   // Add click event listener to the send button
     document.getElementById('sendButton').addEventListener('click', function() {
         // Log the selected text in the console
+        console.log(JSON.stringify(selectedText));
         var getResult = ${getResult}
         if(getResult === true){
             const text = textInput.value;
@@ -740,6 +729,7 @@ window.onload = function() {
             <div id="bot-message" class="bot-message">
                 ${searchedResponse}
             </div>
+            <button id="retry-button" class="retry-button" onclick="retry('${rawSelectedText}')" >Retry</button>
             <hr>
         </div>
     <div class="chat">
@@ -761,16 +751,13 @@ window.onload = function() {
             content: content
         });
 
+        // Set up a listener to handle the result
+        window.addEventListener('message', function(event) {
+            if (event.data.command === 'handleInputResult') {
+                callback(event.data.result);
+            }
+        });
     }
-
-    
-    // Set up a listener to handle the result
-    window.addEventListener('message', function(event) {
-        if (event.data.command === 'handleInputResult') {
-            console.log(event.data.result);
-            appendMessage("bot", event.data.result);
-        }
-    });
 
     function handleFollowup(selectedText, input) {
         vscode.postMessage({
@@ -826,6 +813,7 @@ window.onload = function() {
         </html>
         `;
 }
+const messagesOutside = [];
 function handleMessage(message) {
     if (message.command === 'retry') {
         if (panel) {
@@ -841,17 +829,13 @@ function handleMessage(message) {
             const { DiscussServiceClient } = require("@google-ai/generativelanguage");
             const { GoogleAuth } = require("google-auth-library");
             const MODEL_NAME = "models/chat-bison-001";
-            const API_KEY = apiKey;
+            const API_KEY = "AIzaSyBZxz1NG1QpRtLRKq1wC_wJSYz7lZYPl5k";
             // const content = "Write a funny poem titled 'The Coder Boy'";
             const content = message.content;
-            messagesOutside.push({
+            const messages = messagesOutside;
+            messages.push({
                 "content": content,
             });
-            const messages = messagesOutside;
-            console.log("Messages Before: ");
-            for (let i = 0; i < messages.length; i++) {
-                console.log(`Position ${i + 1}: ${messages[i].content}`);
-            }
             const client = new DiscussServiceClient({
                 authClient: new GoogleAuth().fromAPIKey(API_KEY),
             });
@@ -888,7 +872,7 @@ function handleMessage(message) {
                         messages.push({ "content": obj.content });
                     });
                 } else {
-                    console.log("Didn't catch that. Please Re-Inspect a more concise code segment.");
+                    console.log("Oops, please provide some more info");
                 }
 
                 // Return the content from the last candidate
@@ -897,7 +881,7 @@ function handleMessage(message) {
                 if (error.code === "ECONNABORTED") {
                     // Handle ECONNABORTED error if needed
                 } else {
-                    console.error("An error occured. Please Re-inspect.:", error);
+                    console.error("Error sending text to Bard:", error);
                 }
             }
         }
@@ -909,30 +893,28 @@ function handleMessage(message) {
 
         // Asynchronous function, so use then() to log the result
         logResult().then((resultFromFollowUp) => {
-
+          
             if (resultFromFollowUp) {
+                console.log(typeof resultFromFollowUp);
                 const formattedResponse = resultFromFollowUp
-                    .split('\n')
-                    .filter(line => line.trim() !== '')
-                    .map(paragraph => `<p>${paragraph}</p>`)
-                    .join('')
-                    .toString()
-                const codeRegex = /```([\s\S]*?)```/g;
-                function replaceParagraphTagsWithNewlines(match) {
-                    const replacedMatch = match.replace(/<\/p><p>/g, '\n').replace(/```/g, '');
-                    return "<pre style='padding: 10px; padding-right: 10px; border-radius:5px; background-color: black; white-space: no-wrap; overflow-x: auto;'><pre><code style = 'color: white;'><xmp>" + replacedMatch + "</xmp></code></pre></pre>"
-                }
-                const searchedResult = formattedResponse.replace(codeRegex, replaceParagraphTagsWithNewlines);
-
+                .split('\n')
+                .filter(line => line.trim() !== '')
+                .map(paragraph => `<p>${paragraph}</p>`)
+                .join('')
+                .toString()
+            const codeRegex = /```([\s\S]*?)```/g;
+            function replaceParagraphTagsWithNewlines(match) {
+                const replacedMatch = match.replace(/<\/p><p>/g, '\n').replace(/```/g, '');
+                return "<pre style='padding: 10px; padding-right: 10px; border-radius:5px; background-color: black; white-space: no-wrap; overflow-x: auto;'><pre><code style = 'color: white;'><xmp>" + replacedMatch + "</xmp></code></pre></pre>"
+            }
+            const searchedResult = formattedResponse.replace(codeRegex, replaceParagraphTagsWithNewlines);
+    
                 // Send the result back to the webview
                 panel.webview.postMessage({ command: 'handleInputResult', result: searchedResult });
             } else {
                 panel.webview.postMessage({ command: 'handleInputResult', result: "An Error Occured. Please Retry" });
             }
-            console.log("Messages After: ");
-            for (let i = 0; i < messagesOutside.length; i++) {
-                console.log(`Position ${i + 1}: ${messagesOutside[i].content}`);
-            }
+          
         });
     }
 }

@@ -35,13 +35,12 @@ function activate(context) {
         }
 
         const selection = editor.selection;
-        console.log("Selection: " + selection);
 
         if (selection.isEmpty) {
             vscode.window.showInformationMessage('No code segment is highlighted');
         } else {
             const highlightedCode = editor.document.getText(selection);
-            sendHighlightedTextToBard(stringToBinary(highlightedCode), null);
+            sendHighlightedTextToBard(highlightedCode, null);
         }
     }));
 
@@ -66,7 +65,7 @@ function activate(context) {
         if (!selectedText) {
             vscode.window.showInformationMessage('No code segment is highlighted.');
         } else {
-            sendHighlightedTextToBard(stringToBinary(selectedText), null);
+            sendHighlightedTextToBard(selectedText, null);
         }
     });
 
@@ -76,11 +75,12 @@ function activate(context) {
 
 
     config = vscode.workspace.getConfiguration('InspectGPT');
-    context.subscriptions.push(
-        vscode.commands.registerCommand('extension.inspectGPTAPIKey', () => {
-            vscode.commands.executeCommand('workbench.action.openSettings', 'InspectGPT.apiKey');
-        })
-    );
+    // apiKey = config.get('apiKey');
+    // context.subscriptions.push(
+    //     vscode.commands.registerCommand('extension.inspectGPTAPIKey', () => {
+    //         vscode.commands.executeCommand('workbench.action.openSettings', 'InspectGPT.apiKey');
+    //     })
+    // );
     if (!apiKey) {
         vscode.window.showErrorMessage(`Open AI API Key is not set`, 'Set API Key').then(
             async (selection) => {
@@ -97,7 +97,7 @@ function activate(context) {
 
 
     config = vscode.workspace.getConfiguration('InspectGPT');
-    apiKey = apiKey;
+    // apiKey = config.get('apiKey');
 
     if (!apiKey) {
         vscode.window.showErrorMessage('InspectGPT API key is not set. Click "InspectGPT API KEY" to configure it.');
@@ -164,8 +164,8 @@ function activate(context) {
                                     }
                                 );
                                 if (userChoice === 'InspectGPT') {
-                                 // Panel title
-                                    panel = sendHighlightedTextToBard("InspectGPT", panel);
+                                    // Pass the global panel variable
+                                    panel = sendHighlightedTextToBard(currentSelection, panel);
                                 } else if (typeof userChoice === 'object' && userChoice.title === "Don't like the pop-up?") {
                                     await vscode.commands.executeCommand(
                                         'workbench.action.openSettings',
@@ -196,12 +196,12 @@ function activate(context) {
             if (!selection.isEmpty) {
                 if (editor.document.getText(selection).length <= limit) {
                     const selectedText = editor.document.getText(selection);
-                    panel = sendHighlightedTextToBard(stringToBinary(selectedText), panel); // Pass the panel variable
+                    panel = sendHighlightedTextToBard(selectedText, panel); // Pass the panel variable
                     // If the content is within the limit, return it as is
                 } else {
                     // If content exceeds the limit, return the content until the limit with "..."
                     const selectedText = editor.document.getText(selection).slice(0, limit) + "... '\n The code continues...'";
-                    panel = sendHighlightedTextToBard(stringToBinary(selectedText), panel); // Pass the panel variable
+                    panel = sendHighlightedTextToBard(selectedText, panel); // Pass the panel variable
                 }
             }
         }
@@ -330,7 +330,7 @@ function sendHighlightedTextToBard(highlightedText, existingPanel) {
     const API_KEY = apiKey;
     const messages = [];
 
-    const content = "Deligently check out this extract below and explain what this code is all about in specific context to the other codes in the project. Make sure you refer to other parts of the code file. If there are any error, point them out." + "\n" + binaryToString(highlightedText) + "\n" + "If necessary, send the corrected version of the code. If your response includes code, enclose it in a '<pre>' tag."
+    const content = "Deligently check out this extract below and explain what this code is all about in specific context to the other codes in the project. Make sure you refer to other parts of the code file. If there are any error, point them out." + "\n" + highlightedText + "\n" + "If necessary, send the corrected version of the code. If your response includes code, enclose it in a '<pre>' tag."
     // const content = "Rewrite the corrected version of this code: " + "\n" + highlightedText + "\n";
 
     messages.push({
@@ -355,7 +355,7 @@ function sendHighlightedTextToBard(highlightedText, existingPanel) {
     client.generateMessage({
         model: MODEL_NAME,
         temperature: 1,
-        candidateCount: 8,
+        candidateCount: 1,
         top_k: 40,
         top_p: 0.95,
         prompt: {
@@ -379,13 +379,10 @@ function sendHighlightedTextToBard(highlightedText, existingPanel) {
         if (error.code === 'ECONNABORTED') {
             getResult = true;
             panel.webview.html = getWebviewContent(highlightedText, 'No Internet Connection');
-        }if (error.code == 14) {
-            getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'Please check your internet connection.');
         } else {
-            console.error('An error occured. Please Re-inspect.: Error code ' + error.code , error);
+            console.error('An Error Occured. Please Re-Inspect.', error);
             getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'An error occured. Please Re-inspect.');
+            panel.webview.html = getWebviewContent(highlightedText, 'Error sending text to Bard');
         }
     });
 
@@ -414,10 +411,6 @@ function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
 
     const { DiscussServiceClient } = require("@google-ai/generativelanguage");
     const { GoogleAuth } = require("google-auth-library");
-
-    if (existingPanel) {
-        existingPanel.dispose(); // Dispose the existing panel
-    }
 
     // Create a new panel
     var panel = vscode.window.createWebviewPanel(
@@ -484,7 +477,7 @@ function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
     client.generateMessage({
         model: MODEL_NAME,
         temperature: 1,
-        candidateCount: 8,
+        candidateCount: 1,
         top_k: 40,
         top_p: 0.95,
         prompt: {
@@ -509,9 +502,9 @@ function sendHighlightedTextToBardFromRetry(highlightedText, existingPanel) {
             getResult = true;
             panel.webview.html = getWebviewContent(highlightedText, 'No Internet Connection');
         } else {
-            console.error('An error occured. Please re-inspect.:', error);
+            console.error('An Error Occured. Please Re-Inspect.', error);
             getResult = true;
-            panel.webview.html = getWebviewContent(highlightedText, 'An error occured. Please re-inspect.');
+            panel.webview.html = getWebviewContent(highlightedText, 'Error sending text to Bard');
         }
     });
 
@@ -740,6 +733,7 @@ window.onload = function() {
             <div id="bot-message" class="bot-message">
                 ${searchedResponse}
             </div>
+            <button id="retry-button" class="retry-button" onclick="retry('${rawSelectedText}')" >Retry</button>
             <hr>
         </div>
     <div class="chat">
@@ -841,7 +835,7 @@ function handleMessage(message) {
             const { DiscussServiceClient } = require("@google-ai/generativelanguage");
             const { GoogleAuth } = require("google-auth-library");
             const MODEL_NAME = "models/chat-bison-001";
-            const API_KEY = apiKey;
+            const API_KEY = api;
             // const content = "Write a funny poem titled 'The Coder Boy'";
             const content = message.content;
             messagesOutside.push({
@@ -888,7 +882,7 @@ function handleMessage(message) {
                         messages.push({ "content": obj.content });
                     });
                 } else {
-                    console.log("Didn't catch that. Please Re-Inspect a more concise code segment.");
+                    console.log("Oops, please provide some more info");
                 }
 
                 // Return the content from the last candidate
@@ -897,7 +891,7 @@ function handleMessage(message) {
                 if (error.code === "ECONNABORTED") {
                     // Handle ECONNABORTED error if needed
                 } else {
-                    console.error("An error occured. Please Re-inspect.:", error);
+                    console.error("Error sending text to Bard:", error);
                 }
             }
         }
@@ -947,4 +941,3 @@ module.exports = {
     activate,
     deactivate,
 };
-
